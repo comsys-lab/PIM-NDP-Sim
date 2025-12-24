@@ -1,0 +1,47 @@
+######################################################################
+# PIMSim Configuration for Code Generation
+# - You do not need to specify all the PIM command's name
+#   except for the cmd_descr/def field.
+# - All the specification follows the order described in cmd_descr/def
+#######################################################################
+
+type:
+  mem: "GDDR6"        # ["LPDDR5", "HBM2", "", ] (supported by Ramulator 2.0)
+  pim: "specialized"  # ["general", "specialized"]
+
+cmd_spec_matrix:
+[
+  ["cmd", "action", "target_scope", "interleaved", "latency"],
+  ["MACSB", "read", "bank", False, 1],
+  ["AFSB", "read", "bank", False, 2],
+  ["RDCP", "read", "bank", False, 3],
+  ["WRCP", "write", "bank", False, 4],
+  ["ACT4_BG", "open", "bankgroup", False, 5],
+  ["ACTAF_BG", "open", "bankgroup", False, 6],
+  ["PRE4_BG", "close", "bankgroup", False, 7],
+  ["MAC4B", "read", "bankgroup", False, 8],
+  ["AF4B", "read", "bankgroup", False, 9],
+  ["EWMUL", "read", "bankgroup", False, 10],
+  ["EWADD", "read", "bankgroup", False, 11],
+  ["ACT4_BKS", "open", "bankgroup", True, 12],
+  ["ACTAF4_BKS", "open", "bankgroup", True, 13],
+  ["PRE4_BKS", "close", "bankgroup", True, 14],
+  ["MAC4B", "read", "bankgroup", True, 15],
+  ["AF4B", "read", "bankgroup", True, 16],
+  ["ACT16", "open", "channel", False, 17],
+  ["ACTAF16", "open", "channel", False, 18],
+  ["MACAB", "read", "channel", False, 19],
+  ["AFAB", "read", "channel", False, 20],
+  ["WRAFLUT", "read", "channel", False, 21],
+  ["WRBK", "read", "channel", False, 22],
+  ["WRGB", "nwrite", "channel", False, 23],
+  ["WRMAC", "nwrite", "channel", False, 24],
+  ["WRBIAS", "nwrite", "channel", False, 25],
+  ["RDMAC", "nread", "channel", False, 26],
+  ["RDAF", "nread", "channel", False, 27],
+]
+
+timing_constraints_params_matrix:
+[
+  []
+]

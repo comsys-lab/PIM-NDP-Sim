@@ -1,0 +1,39 @@
+Frontend:
+  impl: AiMWrapper
+  
+  Translation:
+    impl: RandomTranslation
+    max_addr: 2147483648
+  
+  # AddrMapper:
+  #   impl: ChRaBaRoCo
+
+MemorySystem:
+  impl: AiMSystem
+
+  DRAM:
+    impl: LPDDR5
+    org:
+      preset: 16X_LPDDR5_AiM_32Gb
+      # channel: 1
+      # rank: 1
+      # bankgroup: 4
+      # bank: 4
+      # row: 131072
+      # column: 1024
+    timing:
+      preset: LPDDR5_AiM
+  
+  Controller:
+    impl: AiMController
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    # RowPolicy:
+    #   impl: ClosedRowPolicy
+    #   cap: 4
+    plugins:
+
+  AddrMapper:
+    impl: ChRaBaRoCo

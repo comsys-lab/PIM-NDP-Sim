@@ -1,0 +1,42 @@
+Frontend:
+  impl: AiMPacketTrace
+  clock_ratio: 8
+  path: ./test/aim/06_test_aim_rw.trace
+  
+  Translation:
+    impl: RandomTranslation
+    max_addr: 2147483648
+  
+  AddrMapper:
+    impl: ChRaBaRoCo
+
+MemorySystem:
+  impl: AiMSystem
+  clock_ratio: 3
+
+  DRAM:
+    impl: LPDDR5
+    org:
+      preset: LPDDR5_AiM_512Gb
+      # channel: 1
+      # rank: 1
+      # bankgroup: 4
+      # bank: 4
+      # row: 131072
+      # column: 1024
+    timing:
+      preset: LPDDR5_AiM
+  
+  Controller:
+    impl: AiMController
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    RowPolicy:
+      impl: ClosedRowPolicy
+      cap: 4
+    plugins:
+
+  AddrMapper:
+    impl: ChRaBaRoCo
