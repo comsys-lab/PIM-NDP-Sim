@@ -7,11 +7,11 @@ int main(void)
     void *map_base = NULL;
     size_t map_size = 0;
 
-    // volatile int *pim_base = map_pim(&map_base, &map_size);
-    // if (!pim_base) {
-    //     return 0;
-    // }
-    int pim_base[100000] = {0, };
+    volatile int *pim_base = map_pim(&map_base, &map_size);
+    if (!pim_base) {
+        return 0;
+    }
+    // int pim_base[100000] = {0, };
 
     uint16_t input[IN_DIM] ={0, };
     uint16_t weight[IN_DIM][OUT_DIM] ={0, };

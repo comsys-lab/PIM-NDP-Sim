@@ -1,0 +1,4 @@
+[submodule "AiMulator"]
+	path = AiMulator
+	url = https://github.com/comsys-lab/AiMulator.git
+	branch = PIM-NDP-Sim

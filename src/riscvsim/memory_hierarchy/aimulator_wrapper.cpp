@@ -85,39 +85,81 @@ aimulator_wrapper::access_complete()
 
     while (it != mem_addr_cb_status.end())
     {
-        if (it->second == false)
+        if (it->second == true)
         {
-            // printf("Not completed request addr: %x\n", it->first);
+            // Erase completed entries
+            it = mem_addr_cb_status.erase(it);
+        }
+        else
+        {
+            // Found an incomplete entry
             return false;
         }
-        it++;
     }
 
     return true;
 }
 
+// bool
+// aimulator_wrapper::access_complete()
+// {
+//     auto it = mem_addr_cb_status.begin();
+
+//     while (it != mem_addr_cb_status.end())
+//     {
+//         if (it->second == true)
+//         {
+//             it = mem_addr_cb_status.erase(it);
+//         }
+//         else
+//         {
+//             static int freeze_cnt = 0;
+//             freeze_cnt++;
+
+//             if (freeze_cnt > 100000)
+//             {
+//                 fprintf(stderr, "[FREEZE DETECTED] Waiting for addr: 0x%lx, status: %c\n", it->first, static_cast<bool>(it->second));
+//                 fprintf(stderr, " mem addr_cb_status size: %zu\n", mem_addr_cb_status.size());
+//                 fprintf(stderr, " retry_queue size: %zu\n", retry_queue.size());
+//                 for (auto& entry : mem_addr_cb_status) {
+//                     fprintf(stderr, "   Pending: 0x%lx -> %d\n", entry.first, entry.second);
+//                 }
+//                 abort();
+//             }
+
+//             return false;
+//         }
+//     }
+    
+//     return true;
+// }
+
 bool
 aimulator_wrapper::try_send_transaction(const PendingTransaction& trans)
 {
+    // Jongmin
+    // Logging for debugging
+    fprintf(stderr, "[SEND] type: %d, addr: 0x%lx, is_aim: %d\n", trans.type_id, trans.addr, trans.is_aim);
+
     if (trans.is_aim)
     {
         return ramulator2_frontend->receive_external_aim_requests(trans.type_id, trans.addr,
-            [this](Ramulator::Request& req) {
+            [this, addr=trans.addr](Ramulator::Request& req) {
+                fprintf(stderr, "[CALLBACK] addr: 0x%lx, req.addr: 0x%lx\n", addr, req.addr);
                 auto it = mem_addr_cb_status.find(req.addr);
                 assert(it != mem_addr_cb_status.end());
                 it->second = true;
-                // mem_addr_cb_status.erase(it);
             });
     }
     else
     {
         return ramulator2_frontend->receive_external_requests(
             trans.type_id, trans.addr, 0,
-            [this](Ramulator::Request& req) {
+            [this, addr=trans.addr](Ramulator::Request& req) {
+                fprintf(stderr, "[CALLBACK] addr: 0x%lx, req.addr: 0x%lx\n", addr, req.addr);
                 auto it = mem_addr_cb_status.find(req.addr);
                 assert(it != mem_addr_cb_status.end());
                 it->second = true;
-                // mem_addr_cb_status.erase(it);
             });
     }
 }
@@ -128,30 +170,9 @@ aimulator_wrapper::get_max_clock_cycles(PendingMemAccessEntry *e)
     int bytes_accessed = 0;
     int clock_cycles_elasped = 0;
     int cycles_queuing_delay = 0;
-    target_ulong addr = e->addr;
+    target_ulong addr = 0;
 
     mem_addr_cb_status.clear();
-
-    // Pending transactions has a higher priority than newly arriving requests.
-    // Until the AiMulator resolves pending requests, it does not issue newly arriving requests.
-    // This behavior stems from the nature of in-order execution of AiM operations.
-    while (!retry_queue.empty())
-    {
-        // The order of pending requests should be reserved.
-        // Thus, try only a request at the front of the retry queue.
-        PendingTransaction& retry_trans = retry_queue.front();
-        printf("[AiMulator Wrapper] Retrying address 0x%llx\n", retry_trans.addr);
-        if (try_send_transaction(retry_trans))
-        {
-            mem_addr_cb_status.insert(std::pair<target_ulong, bool>(retry_trans.addr, false));
-            retry_queue.pop();
-        }
-        else
-        {
-            ramulator2_memorysystem->tick();
-            cycles_queuing_delay++;
-        }
-    }
 
     /* Split the entire request size into MEM_BUS_WIDTH sized parts, and query
      * latency for each of the part separately */
@@ -159,14 +180,12 @@ aimulator_wrapper::get_max_clock_cycles(PendingMemAccessEntry *e)
     {
         while (bytes_accessed <= e->access_size_bytes)
         {
-            addr += bytes_accessed;
+            addr = e->addr + bytes_accessed;
+            mem_addr_cb_status.insert(std::pair<target_ulong, bool>(addr, false));
             PendingTransaction trans(addr, e->type, false);
-            if (try_send_transaction(trans))
+            if (!try_send_transaction(trans))
             {
-                mem_addr_cb_status.insert(std::pair<target_ulong, bool>(addr, false));
-            }
-            else
-            {
+                mem_addr_cb_status.erase(addr);
                 retry_queue.push(trans);
             }
             bytes_accessed += MEM_BUS_WIDTH;
@@ -174,34 +193,66 @@ aimulator_wrapper::get_max_clock_cycles(PendingMemAccessEntry *e)
     }
     else
     {
+        addr = e->addr;
+        mem_addr_cb_status.insert(std::pair<target_ulong, bool>(addr, false));
         PendingTransaction trans(addr, e->type, true);
-        if (try_send_transaction(trans))
+        if (!try_send_transaction(trans))
         {
-            mem_addr_cb_status.insert(std::pair<target_ulong, bool>(addr, false));
+            mem_addr_cb_status.erase(addr);
+            retry_queue.push(trans);
+        }
+        
+    }
+
+    int cnt = 0;
+    while (!access_complete())
+    {
+        // Pending transactions has a higher priority than newly arriving requests.
+        // Until the AiMulator resolves pending requests, it does not issue newly arriving requests.
+        // This behavior stems from the nature of in-order execution of AiM operations.
+        if (!retry_queue.empty())
+        {
+            // The order of pending requests should be reserved.
+            // Thus, try only a request at the front of the retry queue.
+            PendingTransaction& retry_trans = retry_queue.front();
+            fprintf(stderr, "[AiMulator Wrapper] Retrying address 0x%llx\n", retry_trans.addr);
+            mem_addr_cb_status.insert(std::pair<target_ulong, bool>(retry_trans.addr, false));
+            if (try_send_transaction(retry_trans))
+            {
+                retry_queue.pop();
+            }
+            else
+            {
+                mem_addr_cb_status.erase(retry_trans.addr);
+                ramulator2_memorysystem->tick();
+                cycles_queuing_delay++;
+            }
         }
         else
         {
-            retry_queue.push(trans);
-        }
-    }
-
-    while (!access_complete())
-    {
-        // printf("[AiMulator Wrapper] Waiting for access completion...\n");
-        auto it = mem_addr_cb_status.begin();
-        printf("Not completed request addr: ");
-        while (it != mem_addr_cb_status.end())
-        {
-            if (it->second == false)
+            if (cnt >= 2000)
             {
-                printf("%x ", it->first);
-            }
-            it++;
-        }
-        printf("\n");
-        ramulator2_memorysystem->tick();
-        clock_cycles_elasped++;
-    }
+                printf("Clock exceed\n");
+                printf("Not completed request addr: ");
+                auto it = mem_addr_cb_status.begin();
+                while (it != mem_addr_cb_status.end())
+                {
+                    if (it->second == false)
+                    {
+                        printf("%x ", it->first);
+                    }
+                    it = mem_addr_cb_status.erase(it);
+                }
 
+                printf("\n");
+                throw std::runtime_error("The first incompleted request was recorded.");
+            }
+
+            ramulator2_memorysystem->tick();
+            clock_cycles_elasped++;
+            cnt++;
+        }
+    }
+    
     return clock_cycles_elasped + cycles_queuing_delay;
 }

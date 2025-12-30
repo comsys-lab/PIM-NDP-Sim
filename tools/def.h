@@ -1,7 +1,7 @@
 #ifndef DEF_H
 #define DEF_H
 
-#define PIM_SIM 0
+#define PIM_SIM 1
 
 #define PIM_BASE_ADDR 0x480000000000
 #define PIM_SIZE 0x1000000000 /* 64GB */

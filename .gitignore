@@ -1,0 +1,13 @@
+# Exclude a specific file
+CLAUDE.md
+src/marss-riscv
+src/marss-riscv-debug
+
+# Exclude a whoel directory (add the trailing slash)
+marss-riscv-images/
+configs/riscv64-unknown-linux-gnu/
+
+# Exclude all files ending in .log
+*.d
+*.o
+*.so

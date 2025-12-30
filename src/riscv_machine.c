@@ -1136,7 +1136,8 @@ static VirtMachine *riscv_machine_init(const VirtMachineParams *p)
     s->rtc_real_time = p->rtc_real_time;
     s->rtc = rtc_init(p->sim_params->rtc_freq_mhz * 1000000);
     s->cpu_state->rtc = s->rtc;
-    cpu_register_pim(s->mem_map, PIM_BASE_ADDR, PIM_SIZE - p->ram_size, p->ram_size); // PIM area size = PIM device size - RAM size
+    // PIM area size = PIM device size - RAM size
+    cpu_register_pim(s->mem_map, PIM_BASE_ADDR, PIM_SIZE - p->ram_size, p->ram_size);
 
     cpu_register_device(s->mem_map, CLINT_BASE_ADDR, CLINT_SIZE, s,
                         clint_read, clint_write, DEVIO_SIZE32);
