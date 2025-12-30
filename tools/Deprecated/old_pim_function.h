@@ -12,9 +12,17 @@
 volatile int *map_pim(void **out_map_base, size_t *out_map_size);
 
 typedef struct{
+    uint32_t h;
+    uint32_t r;
+    uint32_t c;
+} WeightShape;
+
+typedef struct{
+    WeightShape shape;
+    int is_SB;
     int size;
     int size_per_bank;
-    int mode; // 0: abk, 1: 4bk, 2: sbk
+    int row_idx;
 } PIM_BUFFER;
 
 typedef struct{
@@ -22,13 +30,12 @@ typedef struct{
     int next_idx;
 } PIM_MANAGER;
 
-volatile int* map_pim(void **out_map_base, size_t *out_map_size);
-
-PIM_BUFFER* PIMmalloc(PIM_MANAGER* manager, int size, int mode);
+PIM_BUFFER* PIMmalloc(PIM_MANAGER* manager, WeightShape shape);
+PIM_BUFFER* PIMmallocSB(PIM_MANAGER* manager, WeightShape shape);
 void PIMfree(PIM_BUFFER *pimbf);
 int PIMmemcpy(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *hostData, int host_data_size);
 
-int PIMgemv(PIM_MANAGER *manager, PIM_BUFFER *input, PIM_BUFFER *weight, uint16_t *output, int b, int in_h, int w_h, int w_r, int w_c);
+int PIMgemv(PIM_MANAGER *manager, PIM_BUFFER *input, PIM_BUFFER *weight, uint16_t *output);
 int PIMupdateK(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *hostData, WeightShape shape);
 int PIMupdateV(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *hostData, WeightShape shape);
 

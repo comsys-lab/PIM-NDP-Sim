@@ -1,6 +1,9 @@
 #include "pim_function.h"
-#include "AiM_test.h"
-// #include "AiM_asm.h"
+#if TRACE_MODE
+#include "AiM_trace.h"
+#else
+#include "AiM_asm.h"
+#endif
 
 volatile int *map_pim(void **out_map_base, size_t *out_map_size)
 {
@@ -42,40 +45,34 @@ volatile int *map_pim(void **out_map_base, size_t *out_map_size)
     return pim;
 }
 
-PIM_BUFFER* PIMmalloc(PIM_MANAGER* manager, WeightShape shape)
+PIM_MANAGER* PIMregister(int n_ch)
 {
-    PIM_BUFFER *buffer = (PIM_BUFFER *)malloc(sizeof(PIM_BUFFER));
-    if (!buffer) {
-        perror("malloc PIM_BUFFER");
+    PIM_MANAGER* manager = (PIM_MANAGER*)malloc(sizeof(PIM_MANAGER));
+    if (manager == NULL) {
+        return NULL; 
+    }
+    manager->map_base = NULL;
+    manager->map_size = 0;
+
+    manager->pim_base = (uint16_t *)map_pim(&manager->map_base, &manager->map_size);
+    if (!manager->pim_base) {
         return NULL;
     }
 
-    int host_data_size = shape.h * shape.r * shape.c;
-    if (host_data_size % (NUM_CHS * NUM_BGS * NUM_BANKS) != 0) {
-        printf("[Error] PIMmalloc: host_data_size not aligned to bank/channel\n");
-        return NULL;
-    }
-
-    int size_per_bank = host_data_size / (NUM_CHS * NUM_BGS * NUM_BANKS);
-    int needed_rows = size_per_bank / ROW_SIZE + (size_per_bank % ROW_SIZE != 0);
-
-    if (manager->next_idx + needed_rows > NUM_ROWS) {
-        printf("[Error] PIMmalloc: out of PIM memory!\n");
-        return NULL;
-    }
-
-    buffer->size = host_data_size;
-    buffer->size_per_bank = size_per_bank;
-    buffer->row_idx = manager->next_idx;
-    buffer->shape = shape;
-    buffer->is_SB = 0;
-
-    manager->next_idx += needed_rows;
-
-    return buffer;
+    manager->ch_begin = 0;
+    manager->ch_end = n_ch;
+    manager->next_idx = 0;
+    
+    return manager;
 }
 
-PIM_BUFFER* PIMmallocSB(PIM_MANAGER* manager, WeightShape shape)
+void PIMremove(PIM_MANAGER* manager)
+{
+    munmap(manager->map_base, manager->map_size);
+    free(manager);
+}
+
+PIM_BUFFER* PIMmalloc(PIM_MANAGER* manager, int size, int mode)
 {
     PIM_BUFFER *buffer = (PIM_BUFFER *)malloc(sizeof(PIM_BUFFER));
     if (!buffer) {
@@ -83,20 +80,26 @@ PIM_BUFFER* PIMmallocSB(PIM_MANAGER* manager, WeightShape shape)
         return NULL;
     }
 
-    int size_per_bank = shape.h * shape.r * shape.c;
-    int needed_rows = size_per_bank / ROW_SIZE + (size_per_bank % ROW_SIZE != 0);
-
-    if (manager->next_idx + needed_rows > NUM_ROWS) {
-        printf("[Error] PIMmalloc: out of PIM memory!\n");
-        return NULL;
+    int n_bank;
+    int n_ch = manager->ch_end - manager->ch_begin;
+    switch(mode){
+        case 0: n_bank=n_ch*NUM_BGS*NUM_BANKS; break;
+        case 1: n_bank=n_ch*NUM_BGS; break;
+        case 2: n_bank=n_ch; break;
+        default: return NULL;
     }
+    int size_per_bank = size / n_bank;
 
-    buffer->size = size_per_bank;
+    buffer->size = size;
     buffer->size_per_bank = size_per_bank;
     buffer->row_idx = manager->next_idx;
-    buffer->shape = shape;
-    buffer->is_SB = 1;
+    buffer->mode = mode;
 
+    int needed_rows = (size_per_bank / ROW_SIZE);
+    if(needed_rows == 0){
+        printf("[Error] PIMmalloc: dimension too small!\n");
+        return NULL;
+    }
     manager->next_idx += needed_rows;
 
     return buffer;
@@ -113,48 +116,327 @@ int PIMmemcpy(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *hostData, int h
         return 0;
     }
 
-    if(!pimbf->is_SB){
-        for(int ch = 0; ch < NUM_CHS; ch++){
+    // Mode 0: All Banks (CH -> BG -> BK)
+    if(pimbf->mode == 0){
+        for(int ch = manager->ch_begin; ch < manager->ch_end; ch++){
             for(int bg = 0; bg < NUM_BGS; bg++){
                 for(int bk = 0; bk < NUM_BANKS; bk++){
                     int idx = (ch * NUM_BGS + bg) * NUM_BANKS + bk;
                     idx *= pimbf->size_per_bank;
 
-                    for(int i = 0; i < pimbf->size_per_bank; i += WORD_SIZE){
-                        int row = i / ROW_SIZE + pimbf->row_idx;
-                        int col = i % ROW_SIZE;
+                    for(int i = 0; i < (pimbf->size_per_bank / WORD_SIZE); i++){
+                        int row = i / NUM_COLS + pimbf->row_idx;
+                        int col = i % NUM_COLS;
 
                         uint64_t addr = addr_gen(ch, 0, bg, bk, row, col);
+
+#if TRACE_MODE
+                        printf("Addr ch: %d, bg: %d, bk: %d, row: %d, col: %d\n", ch, bg, bk, row, col);
+#else
                         for(int offset = 0; offset < WORD_SIZE; offset++){
                             uint64_t byte_offset = addr + offset * sizeof(uint16_t);
                             volatile uint16_t *p = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
-                            //*p = hostData[idx + i + offset];
+                            *p = hostData[idx + i + offset];
                         }
+#endif
                     }
                 }
             }
         }
     }
 
-    else{
-        for(int ch = 0; ch < NUM_CHS; ch++){
-            int idx = ch * pimbf->size_per_bank;
+    // Mode 1: Bank 0 of each BG (CH -> BG, BK fixed to 0)
+    else if(pimbf->mode == 1){
+        for(int ch = manager->ch_begin; ch < manager->ch_end; ch++){
+            for(int bg = 0; bg < NUM_BGS; bg++){
+                int bk = 0; 
+                
+                int idx = (ch * NUM_BGS + bg); 
+                idx *= pimbf->size_per_bank;
 
-            for(int i = 0; i < pimbf->size_per_bank; i += WORD_SIZE){
-                int row = i / ROW_SIZE + pimbf->row_idx;
-                int col = i % ROW_SIZE;
+                for(int i = 0; i < (pimbf->size_per_bank / WORD_SIZE); i++){
+                    int row = i / NUM_COLS + pimbf->row_idx;
+                    int col = i % NUM_COLS;
 
-                uint64_t addr = addr_gen(ch, 0, 0, 0, row, col);
-                for(int offset = 0; offset < WORD_SIZE; offset++){
-                    uint64_t byte_offset = addr + offset * sizeof(uint16_t);
-                    volatile uint16_t *p = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
-                    // printf("Writing to addr: %p value: %f\n", p, hostData[idx + i + offset]);
-                    //*p = hostData[idx + i + offset];
+                    uint64_t addr = addr_gen(ch, 0, bg, bk, row, col);
+
+#if TRACE_MODE
+                    printf("Addr ch: %d, bg: %d, bk: %d, row: %d, col: %d\n", ch, bg, bk, row, col);
+#else
+                    for(int offset = 0; offset < WORD_SIZE; offset++){
+                        uint64_t byte_offset = addr + offset * sizeof(uint16_t);
+                        volatile uint16_t *p = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
+                        *p = hostData[idx + i + offset];
+                    }
+#endif
                 }
             }
         }
     }
 
+    // Mode 2: Bank 0 of BG 0 only (CH only, BG=0, BK=0)
+    else if(pimbf->mode == 2){
+        for(int ch = manager->ch_begin; ch < manager->ch_end; ch++){
+            int idx = ch * pimbf->size_per_bank;
+
+            for(int i = 0; i < (pimbf->size_per_bank / WORD_SIZE); i++){
+                int row = i / NUM_COLS + pimbf->row_idx;
+                int col = i % NUM_COLS;
+
+                uint64_t addr = addr_gen(ch, 0, 0, 0, row, col);
+#if TRACE_MODE
+                printf("Addr ch: %d, bg: %d, bk: %d, row: %d, col: %d\n", ch, 0, 0, row, col);
+#else
+                for(int offset = 0; offset < WORD_SIZE; offset++){
+                    uint64_t byte_offset = addr + offset * sizeof(uint16_t);
+                    volatile uint16_t *p = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
+                    *p = hostData[idx + i + offset];
+                }
+#endif
+            }
+        }
+    }
+
+    else{
+        return 0;
+    }
+    return 1;
+}
+
+static inline void load_input_to_pim(PIM_MANAGER *manager, int row_addr) {
+    for (int col = 0; col < NUM_COLS; col++) {
+        for (int ch = manager->ch_begin; ch < manager->ch_end; ch++) {
+            aim_copy_bkgb((void *)manager->pim_base, addr_gen(ch, 0, 0, 0, row_addr, col));
+        }
+    }
+}
+
+static inline void execute_pim_mac(PIM_MANAGER *manager, int row_addr, int col_addr) {
+    for (int ch = manager->ch_begin; ch < manager->ch_end; ch++) {
+        aim_mac_abk((void *)manager->pim_base, addr_gen(ch, 0, 0, 0, row_addr, col_addr));
+    }
+}
+
+static inline void read_pim_result(PIM_MANAGER *manager, uint16_t *output, int output_base_idx) {
+    for (int ch = manager->ch_begin; ch < manager->ch_end; ch++) {
+        uint16_t mac_result = aim_rd_mac((void *)manager->pim_base, addr_gen(ch, 0, 0, 0, 0, 0));
+        output[output_base_idx + ch] = *(uint16_t *)&mac_result; 
+    }
+}
+
+int PIMgemv(PIM_MANAGER *manager, PIM_BUFFER *input, PIM_BUFFER *weight, uint16_t *output, 
+            int b, int in_h, int w_h, int w_r, int w_c)
+{
+    // 1. Dimension Checks
+    if (input->size != b * in_h * w_r) {
+        printf("[Error] PIMgemv: input dimension mismatch! (Expected: %d, Actual: %d)\n", b * in_h * w_r, input->size);
+        return 0;
+    }
+    if (weight->size != b * w_h * w_r * w_c) {
+        printf("[Error] PIMgemv: weight dimension mismatch! (Expected: %d, Actual: %d)\n", b * w_h * w_r * w_c, weight->size);
+        return 0;
+    }
+
+    int h_ratio = (w_h > 0) ? (in_h / w_h) : 0;
+    if (h_ratio == 0) {
+        printf("[Error] PIMgemv: # heads of input is smaller than weight or div by zero!\n");
+        return 0;
+    }
+
+    int n_ch = manager->ch_end - manager->ch_begin;
+    int n_bank = n_ch * NUM_BGS * NUM_BANKS;
+    int c_per_bank = w_h * w_c / n_bank;
+
+    if (c_per_bank == 0) {
+        printf("[Error] PIMgemv: weight dimension error (c_per_bank is 0)!\n");
+        return 0;
+    }
+
+    // 2. Pre-calculation for Loops
+    const int num_iters = weight->size_per_bank / (b * WORD_SIZE); 
+    
+    // Case A: Small Vector (w_r <= ROW_SIZE)
+    if (w_r <= ROW_SIZE) {
+        int vec_chunk_size = w_r / WORD_SIZE;
+        int load_interval = vec_chunk_size * c_per_bank;
+
+        int idx_in = 0;
+        for (int idx_b = 0; idx_b < b; idx_b++) {            
+            for (int idx_h = 0; idx_h < h_ratio; idx_h++) {
+                for (int idx_w = 0; idx_w < num_iters; idx_w++) {
+                    
+                    // Step 1: Input Loading
+                    if (idx_w % load_interval == 0) {
+                        load_input_to_pim(manager, input->row_idx + idx_in);
+                        idx_in++;
+                    }
+
+                    // Step 2: MAC Execution
+                    int base_offset = idx_b * num_iters;
+                    int weight_row_offset = (base_offset + idx_w) / NUM_COLS;
+                    int weight_col = idx_w % NUM_COLS;
+
+                    execute_pim_mac(manager, weight->row_idx + weight_row_offset, weight_col);
+
+                    // Step 3: Read Result
+                    if (idx_w % vec_chunk_size == (vec_chunk_size - 1)) {
+                        int out_base_idx = (idx_w / w_r) * n_ch;
+                        read_pim_result(manager, output, out_base_idx);
+                    }
+                }
+            }
+        }
+    }
+    // Case B: Large Vector (w_r > ROW_SIZE)
+    else {
+        int chunks_per_row = w_r / ROW_SIZE;
+        int vec_chunk_limit = w_r / WORD_SIZE;
+
+        for (int idx_b = 0; idx_b < b; idx_b++) {
+            for (int idx_h = 0; idx_h < h_ratio; idx_h++) {
+                int idx_in = 0;
+
+                for (int idx_w = 0; idx_w < num_iters; idx_w++) {
+                    
+                    // Step 1: Input Loading
+                    if (idx_w % NUM_COLS == 0) {
+                        int row_offset = idx_in + (chunks_per_row * idx_h) + (chunks_per_row * h_ratio * idx_b);
+                        load_input_to_pim(manager, input->row_idx + row_offset);
+                        idx_in++;
+                    }
+
+                    // Step 2: MAC Execution
+                    int base_offset = idx_b * num_iters;
+                    int weight_row_offset = (base_offset + idx_w) / NUM_COLS;
+                    int weight_col = idx_w % NUM_COLS;
+
+                    execute_pim_mac(manager, weight->row_idx + weight_row_offset, weight_col);
+
+                    // Step 3: Read Result
+                    if (idx_w % vec_chunk_limit == (vec_chunk_limit - 1)) {
+                        int out_base_idx = (idx_w / w_r) * n_ch;
+                        read_pim_result(manager, output, out_base_idx);
+                        
+                        idx_in = 0; // Reset input tracking
+                    }
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+int PIMupdate(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *new_vec, 
+                int b, int h, int seq_idx, 
+                int n_head, int s_len, int h_dim, int is_k) 
+{
+    int n_ch = manager->ch_end - manager->ch_begin;
+    int n_bg = NUM_BGS;
+    int n_bk = NUM_BANKS;
+    int total_banks = n_ch * n_bg * n_bk;
+
+    long total_elems_per_batch = (long)n_head * s_len * h_dim;
+    long elems_per_bank = total_elems_per_batch / total_banks;
+
+    if (elems_per_bank == 0) {
+        printf("[Error] PIMupdateKV: Data size too small for bank partitioning.\n");
+        return 0;
+    }
+
+    long batch_base_offset = (long)b * elems_per_bank;
+
+    if (is_k) {
+        long logical_start_idx = (long)h * (s_len * h_dim) + (long)seq_idx * h_dim;
+
+        for (int d = 0; d < h_dim; d += WORD_SIZE) {
+            long current_logical_idx = logical_start_idx + d;
+
+            int target_bank_idx = current_logical_idx / elems_per_bank;
+            long offset_in_bank = current_logical_idx % elems_per_bank;
+
+            long total_offset = batch_base_offset + offset_in_bank;
+
+            long word_chunk_idx = total_offset / WORD_SIZE;
+
+            int row = word_chunk_idx / NUM_COLS + pimbf->row_idx;
+            int col = word_chunk_idx % NUM_COLS;
+
+            int bk = target_bank_idx % n_bk;
+            int tmp = target_bank_idx / n_bk;
+            int bg = tmp % n_bg;
+            int ch = tmp / n_bg + manager->ch_begin;
+
+            uint64_t addr = addr_gen(ch, 0, bg, bk, row, col);
+
+#if TRACE_MODE
+            printf("Addr ch: %d, bg: %d, bk: %d, row: %d, col: %d\n", ch, bg, bk, row, col);
+#else
+            for (int w = 0; w < WORD_SIZE; w++) {
+                if (d + w >= h_dim) break;
+
+                uint64_t byte_offset = addr + w * sizeof(uint16_t);
+                volatile uint16_t *dst = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
+                *dst = new_vec[d + w];
+            }
+#endif
+        }
+    }
+    // --- CASE 2: V Cache (Scatter Update) ---
+    else {
+        long head_base_idx = (long)h * (h_dim * s_len);
+
+        for (int d = 0; d < h_dim; d++) {
+            long current_logical_idx = head_base_idx + (long)d * s_len + seq_idx;
+
+            int target_bank_idx = current_logical_idx / elems_per_bank;
+            long offset_in_bank = current_logical_idx % elems_per_bank;
+            long total_offset = batch_base_offset + offset_in_bank;
+
+            long word_chunk_idx = total_offset / WORD_SIZE;
+            int word_internal_offset = total_offset % WORD_SIZE; // 0 ~ 15
+
+            int row = word_chunk_idx / NUM_COLS + pimbf->row_idx;
+            int col = word_chunk_idx % NUM_COLS; // 0, 1, 2...
+
+            int bk = target_bank_idx % n_bk;
+            int tmp = target_bank_idx / n_bk;
+            int bg = tmp % n_bg;
+            int ch = tmp / n_bg + manager->ch_begin;
+
+            uint64_t addr = addr_gen(ch, 0, bg, bk, row, col);
+#if TRACE_MODE
+            printf("Addr ch: %d, bg: %d, bk: %d, row: %d, col: %d\n", ch, bg, bk, row, col);
+#else
+            uint64_t byte_offset = addr + word_internal_offset * sizeof(uint16_t);
+            volatile uint16_t *dst = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
+            
+            *dst = new_vec[d];
+#endif
+        }
+    }
+
+    return 1;
+}
+
+int PIMupdateKV(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *new_vec_batch, 
+                              int batch_size, int seq_idx, 
+                              int n_head, int s_len, int h_dim, int is_k) 
+{
+    long size_per_batch = (long)n_head * h_dim;
+
+    for (int b = 0; b < batch_size; b++) {
+        for (int h = 0; h < n_head; h++) {
+            long vec_offset = (long)b * size_per_batch + (long)h * h_dim;
+
+            uint16_t *current_vec_ptr = new_vec_batch + vec_offset;
+            int ret = PIMupdate(manager, pimbf, current_vec_ptr, b, h, seq_idx, n_head, s_len, h_dim, is_k);
+            
+            if (!ret) {
+                printf("[Error] Failed to update KV at Batch:%d, Head:%d, Seq:%d\n", b, h, seq_idx);
+                return 0;
+            }
+        }
+    }
     return 1;
 }
 
@@ -187,130 +469,4 @@ uint64_t addr_gen(unsigned int ch, unsigned int rank, unsigned int bg, unsigned 
     addr <<= NUM_OFFSET_BIT_;
 
     return addr;
-}
-
-// Assumption: Row dimension of weight matrices is smaller than DRAM row size. (1k elements)
-int PIMgemv(PIM_MANAGER *manager, PIM_BUFFER *input, PIM_BUFFER *weight, uint16_t *output)
-{
-    if(weight->shape.r != input->shape.c){
-        printf("[Error] PIMgemv: weight dimension mismatch!\n");
-        return 0;
-    }
-
-    int h_ratio = input->shape.h / weight->shape.h;
-    if(h_ratio == 0){
-        printf("[Error] PIMgemv: input heads is smaller than weights!\n");
-        return 0;
-    }
-
-    int n_MAC = weight->shape.r / WORD_SIZE;
-    int n_rows_input = input->size_per_bank / (ROW_SIZE * h_ratio);
-    int n_ins_row = (ROW_SIZE) / weight->shape.r;
-    int n_row_per_bank = weight->shape.c / (NUM_BGS * NUM_BANKS * NUM_CHS);
-
-    int cnt=0;
-
-    for(int in_h_idx = 0; in_h_idx < input->shape.h; in_h_idx++)
-    {
-        for(int in_idx = 0; in_idx < n_MAC; in_idx++){
-            for(int ch = 0; ch < NUM_CHS; ch++){
-                int idx = in_h_idx * n_MAC + in_idx;
-                aim_copy_bkgb((void *)manager->pim_base, addr_gen(ch, 0, 0, 0, input->row_idx + idx / NUM_COLS , idx % NUM_COLS));
-            }
-        }
-
-        for(int out_idx = 0; out_idx < n_row_per_bank; out_idx++){
-            for(int mac_idx = 0; mac_idx < n_MAC; mac_idx++){
-                int w_idx = (in_h_idx / h_ratio) * n_MAC * n_row_per_bank + n_MAC * out_idx + mac_idx;
-                for(int ch = 0; ch < NUM_CHS; ch++){
-                    aim_mac_abk((void *)manager->pim_base, addr_gen(ch, 0, 0, 0, weight->row_idx + w_idx / NUM_COLS, w_idx % NUM_COLS));
-                }
-                cnt++;
-            }
-
-            for(int ch = 0; ch < NUM_CHS; ch++){
-                uint16_t mac_result = aim_rd_mac((void *)manager->pim_base, addr_gen(ch, 0, 0, 0, 0, 0));
-                output[ch*weight->shape.c*weight->shape.h + out_idx*(NUM_BGS * NUM_BANKS * NUM_CHS)] = *(uint16_t *)&mac_result; // Load single FP16 value
-            }
-        }
-    }
-    
-    printf("PIM GEMV done...\n");
-
-    return 1;
-}
-
-int PIMupdateK(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *hostData, WeightShape shape)
-{
-    if(pimbf->shape.h != shape.h || pimbf->shape.r != shape.r){
-        printf("[Error] PIMupdate: shape mismatch!\n");
-        return 0;
-    }
-
-    int n_cols = pimbf->shape.c * pimbf->shape.h;
-    int n_cols_per_ch = n_cols / NUM_CHS;
-    int n_cols_per_bg = n_cols / (NUM_BGS * NUM_CHS);
-    int n_cols_per_bank = n_cols / (NUM_BGS * NUM_BANKS * NUM_CHS);
-    n_cols /= shape.h;
-
-    for(int h = 0; h < shape.h; h++){
-        int c = shape.c + h*n_cols;
-        int ch = c / n_cols_per_ch;
-        int bg = c % n_cols_per_ch / n_cols_per_bg;
-        int bk = c % n_cols_per_bg / n_cols_per_bank;
-
-        int idx = (c % n_cols_per_bank) * shape.r / WORD_SIZE;
-        int row = idx / NUM_COLS + pimbf->row_idx;
-        int col = idx % NUM_COLS;
-
-        for(int r = 0; r < shape.r; r += WORD_SIZE){
-            uint64_t addr = addr_gen(ch, 0, bg, bk, row, col);
-            for(int offset = 0; offset < WORD_SIZE; offset++){
-                uint64_t byte_offset = addr + offset * sizeof(uint16_t);
-                volatile uint16_t *p = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
-                // printf("Writing to addr: %p value: %f\n", p, hostData[h * shape.r + r + offset]);
-                //*p = hostData[h * shape.r + r + offset];
-            }
-            col++;
-            if(col == NUM_COLS){
-                col = 0;
-                row++;
-            }
-        }
-    }
-    
-    return 1;
-}
-
-int PIMupdateV(PIM_MANAGER *manager, PIM_BUFFER *pimbf, uint16_t *hostData, WeightShape shape)
-{
-    if(pimbf->shape.h != shape.h || pimbf->shape.c != shape.c){
-        printf("[Error] PIMupdate: shape mismatch!\n");
-        return 0;
-    }
-
-    int n_rows = pimbf->shape.c * pimbf->shape.h;
-    int n_rows_per_ch = n_rows / NUM_CHS;
-    int n_rows_per_bg = n_rows / (NUM_BGS * NUM_CHS);
-    int n_rows_per_bank = n_rows / (NUM_BGS * NUM_BANKS * NUM_CHS);
-
-    for(int h = 0; h < pimbf->shape.h; h++){
-        for(int r = 0; r < pimbf->shape.c; r++){
-            int idx = h * pimbf->shape.r * pimbf->shape.c + r * pimbf->shape.r + shape.r;
-
-            int ch = idx / (NUM_BGS * NUM_BANKS * pimbf->size_per_bank);
-            int bg = (idx % (NUM_BGS * NUM_BANKS * pimbf->size_per_bank)) / (NUM_BANKS * pimbf->size_per_bank);
-            int bk = (idx % (NUM_BANKS * pimbf->size_per_bank)) / pimbf->size_per_bank;
-            int row = (idx % pimbf->size_per_bank) / ROW_SIZE + pimbf->row_idx;
-            int col = (idx % pimbf->size_per_bank) % ROW_SIZE / WORD_SIZE;
-            int offset = (idx % pimbf->size_per_bank) % ROW_SIZE % WORD_SIZE;
-
-            uint64_t addr = addr_gen(ch, 0, bg, bk, row, col);
-            uint64_t byte_offset = addr + offset * sizeof(uint16_t);
-            volatile uint16_t *p = (volatile uint16_t *)((volatile uint8_t *)manager->pim_base + byte_offset);
-            // printf("Writing to addr: %p value: %f\n", p, hostData[h * shape.r + r]);
-            //*p = hostData[h * shape.r + r];
-        }
-    }
-    return 1;
 }
