@@ -292,7 +292,9 @@ dram_can_accept_request(const Dram *d)
 void
 dram_send_request(Dram *d, PendingMemAccessEntry *e)
 {
-    // printf("[MARSS-RISCV (DRAM)] mem acc type: %d\n", e->type);
+#ifdef DEBUG_BUILD
+    fprintf(stderr, "(DEBUG) [NDP-Sim: DRAM] Mem req type: %d\n", e->type);
+#endif
     d->max_clock_cycles = d->get_max_clock_cycles_for_request(d, e);
     assert(d->max_clock_cycles);
 

@@ -112,9 +112,11 @@ mem_controller_create_mem_request(MemoryController *m, target_ulong paddr,
     int index, source_cpu_stage_id;
 
     source_cpu_stage_id = *(int *)p_mem_access_info;
-    
-    // printf("mem_controller_create_mem_request: paddr=0x%llx, bytes_to_access=%d, op_type=%d, source_cpu_stage_id=%d\n",
-    //        paddr, bytes_to_access, op_type, source_cpu_stage_id);
+
+#ifdef DEBUG_BUILD
+    fprintf(stderr, "(DEBUG) [NDP-Sim: MemCtrl] Mem request: op_type=%d, paddr=0x%lx, bytes_to_access=%d, op_type=%d, source_cpu_stage_id=%d\n",
+           op_type, paddr, bytes_to_access, op_type, source_cpu_stage_id);
+#endif
     /*  Align the address for this access to the burst_length */
     if ((op_type == MEM_ACCESS_READ || op_type == MEM_ACCESS_WRITE) && paddr != 0)
     {
@@ -160,15 +162,15 @@ mem_controller_create_mem_request(MemoryController *m, target_ulong paddr,
                 }
                 else
                 {// AiM
-                    // printf("mem_controller_create_mem_request\n");
-                    // printf("bytes_to_access: %d, MemAccessType: %d\n", bytes_to_access, op_type);
                     fill_memory_request_entry(
                         m, &m->backend_aim_queue.entry[m->backend_aim_queue.cur_idx],
                         paddr, op_type, FALSE);
                     ++m->backend_aim_queue.cur_idx;
                     ++m->backend_aim_queue.cur_size;
-                    // printf("marss-riscv backend aim queue cur idx: %d\n", m->backend_aim_queue.cur_idx);
-                    // printf("marss-riscv backend aim queue cur size: %d\n", m->backend_aim_queue.cur_size);
+#ifdef DEBUG_BUILD
+                    fprintf(stderr, "(DEBUG) [NDP-Sim: MemCtrl] Backend AiM queue cur_size=%d, cur_idx=%d\n",
+                            m->backend_aim_queue.cur_size, m->backend_aim_queue.cur_idx);
+#endif
                     break;
                 }
             }
@@ -186,9 +188,10 @@ mem_controller_create_mem_request(MemoryController *m, target_ulong paddr,
 
         sim_assert((index != -1), "error: %s at line %d in %s(): %s", __FILE__,
                    __LINE__, __func__, "memory request queue is full");
-
-        // printf("[MARSS-RISCV (Mem Controller)] Adding mem request at index %d, addr: 0x%llx, type: %d, cpu_stage: %d\n",
-        //        index, paddr, op_type, source_cpu_stage_id);
+#ifdef DEBUG_BUILD
+        fprintf(stderr, "(DEBUG) [NDP-Sim: MemCtrl] Mem request added at index %d, addr: 0x%lx, type: %d, cpu_stage: %d\n",
+               index, paddr, op_type, source_cpu_stage_id);
+#endif
         fill_memory_request_entry(m, &m->mem_request_queue.entry[index], paddr,
                                   op_type, FALSE);
 
@@ -324,7 +327,6 @@ mem_controller_cache_lookup_complete_signal(MemoryController *m,
 {
     int i, j;
     target_ulong addr;
-    // printf("[MARSS-RISCV (Mem Controller)] Cache lookup complete signal received for stage queue\n");
 
     for (j = 0; j < stage_queue->cur_idx; ++j)
     {

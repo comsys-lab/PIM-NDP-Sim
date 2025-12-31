@@ -30,14 +30,14 @@
 #include "../riscv_sim_typedefs.h"
 #include "memory_controller_utils.h"
 // AiM
-#include "../../aimulator/src/base/base.h"
-#include "../../aimulator/src/base/AiM_request.h"
-#include "../../aimulator/src/base/config.h"
-#include "../../aimulator/src/frontend/frontend.h"
-#include "../../aimulator/src/memory_system/memory_system.h"
+#include "../../AiMulator/src/base/base.h"
+#include "../../AiMulator/src/base/AiM_request.h"
+#include "../../AiMulator/src/base/config.h"
+#include "../../AiMulator/src/frontend/frontend.h"
+#include "../../AiMulator/src/memory_system/memory_system.h"
 
 #include <fstream>
-#include "../../aimulator/src/base/stats.h"
+#include "../../AiMulator/src/base/stats.h"
 
 class aimulator_wrapper
 {
