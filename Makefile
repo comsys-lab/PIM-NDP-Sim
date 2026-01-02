@@ -80,18 +80,18 @@ RAMULATOR_LIB_SO+=$(SRC_DIR)/ramulator/libramulator.so
 RAMULATOR_INC+=-I$(SRC_DIR)/ramulator/src
 
 # --------------------------------------------------
-# Custom Ramulator2 using CMake Integration
+# Custom AiMulator using CMake Integration
 # --------------------------------------------------
-RAMULATOR2_DIR = $(SRC_DIR)/AiMulator
-RAMULATOR2_LIB_NAME = libramulator2.so
-RAMULATOR2_LIB_SO = $(RAMULATOR2_DIR)/$(RAMULATOR2_LIB_NAME)
-RAMULATOR2_WRAPPER_LIB_NAME = libramulator2_wrapper_lib.so
-RAMULATOR2_WRAPPER_LIB = $(BUILD_DIR)/$(RAMULATOR2_WRAPPER_LIB_NAME)
-RAMULATOR2_WRAPPER_OBJ = $(BUILD_DIR)/obj/riscvsim/memory_hierarchy/aimulator_wrapper.o
-RAMULATOR2_C_CONNECTOR_LIB_NAME = libramulator2_wrapper_c_connector.so
-RAMULATOR2_C_CONNECTOR_LIB = $(BUILD_DIR)/$(RAMULATOR2_C_CONNECTOR_LIB_NAME)
-RAMULATOR2_C_CONNECTOR_OBJ = $(BUILD_DIR)/obj/riscvsim/memory_hierarchy/aimulator_wrapper_c_connector.o
-RAMULATOR2_INCLUDE = -I$(RAMULATOR2_DIR)/src -I$(RAMULATOR2_DIR)/ext/spdlog/include -I$(RAMULATOR2_DIR)/ext/yaml-cpp/include -I$(RAMULATOR2_DIR)/ext/argparse/include
+AIMULATOR_DIR = $(SRC_DIR)/AiMulator
+AIMULATOR_LIB_NAME = libaimulator.so
+AIMULATOR_LIB_SO = $(AIMULATOR_DIR)/$(AIMULATOR_LIB_NAME)
+AIMULATOR_WRAPPER_LIB_NAME = libaimulator_wrapper_lib.so
+AIMULATOR_WRAPPER_LIB = $(BUILD_DIR)/$(AIMULATOR_WRAPPER_LIB_NAME)
+AIMULATOR_WRAPPER_OBJ = $(BUILD_DIR)/obj/riscvsim/memory_hierarchy/aimulator_wrapper.o
+AIMULATOR_C_CONNECTOR_LIB_NAME = libaimulator_wrapper_c_connector.so
+AIMULATOR_C_CONNECTOR_LIB = $(BUILD_DIR)/$(AIMULATOR_C_CONNECTOR_LIB_NAME)
+AIMULATOR_C_CONNECTOR_OBJ = $(BUILD_DIR)/obj/riscvsim/memory_hierarchy/aimulator_wrapper_c_connector.o
+AIMULATOR_INCLUDE = -I$(AIMULATOR_DIR)/src -I$(AIMULATOR_DIR)/ext/spdlog/include -I$(AIMULATOR_DIR)/ext/yaml-cpp/include -I$(AIMULATOR_DIR)/ext/argparse/include
 
 # Top-level simulator object file
 SIM_OBJ_FILE=$(BUILD_DIR)/obj/riscvsim.o
@@ -168,24 +168,24 @@ $(RAMULATOR_LIB_SO):
 	cd $(SRC_DIR)/ramulator && $(MAKE) libramulator.so && cd ../..
 
 # Custom Ramulator 2 build rules
-$(RAMULATOR2_LIB_SO):
-	mkdir -p $(RAMULATOR2_DIR)/build
-	cd $(RAMULATOR2_DIR)/build && cmake .. -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) && $(MAKE) -j$(shell nproc)
-	@if [ ! -f $(RAMULATOR2_LIB_SO) ]; then echo "Error: $(RAMULATOR2_LIB_SO) not found after build"; exit 1; fi
+$(AIMULATOR_LIB_SO):
+	mkdir -p $(AIMULATOR_DIR)/build
+	cd $(AIMULATOR_DIR)/build && cmake .. -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) && $(MAKE) -j$(shell nproc)
+	@if [ ! -f $(AIMULATOR_LIB_SO) ]; then echo "Error: $(AIMULATOR_LIB_SO) not found after build"; exit 1; fi
 
-$(RAMULATOR2_WRAPPER_OBJ): $(SRC_DIR)/riscvsim/memory_hierarchy/aimulator_wrapper.cpp $(RAMULATOR2_LIB_SO)
+$(AIMULATOR_WRAPPER_OBJ): $(SRC_DIR)/riscvsim/memory_hierarchy/aimulator_wrapper.cpp $(AIMULATOR_LIB_SO)
 	@mkdir -p $(dir $@)
-	$(CXX) $(OPT_FLAGS) -DMAX_XLEN=$(CONFIG_XLEN) -fpic -shared -std=c++20 $(RAMULATOR2_INCLUDE) -DSPDLOG_COMPILED_LIB -c -o $@ $<
+	$(CXX) $(OPT_FLAGS) -DMAX_XLEN=$(CONFIG_XLEN) -fpic -shared -std=c++20 $(AIMULATOR_INCLUDE) -DSPDLOG_COMPILED_LIB -c -o $@ $<
 
-$(RAMULATOR2_C_CONNECTOR_OBJ): $(SRC_DIR)/riscvsim/memory_hierarchy/aimulator_wrapper_c_connector.cpp $(RAMULATOR2_LIB_SO)
+$(AIMULATOR_C_CONNECTOR_OBJ): $(SRC_DIR)/riscvsim/memory_hierarchy/aimulator_wrapper_c_connector.cpp $(AIMULATOR_LIB_SO)
 	@mkdir -p $(dir $@)
-	$(CXX) $(OPT_FLAGS) -DMAX_XLEN=$(CONFIG_XLEN) -fpic -shared -std=c++20 $(RAMULATOR2_INCLUDE) -DSPDLOG_COMPILED_LIB -c -o $@ $<
+	$(CXX) $(OPT_FLAGS) -DMAX_XLEN=$(CONFIG_XLEN) -fpic -shared -std=c++20 $(AIMULATOR_INCLUDE) -DSPDLOG_COMPILED_LIB -c -o $@ $<
 
-$(RAMULATOR2_WRAPPER_LIB): $(RAMULATOR2_LIB_SO) $(RAMULATOR2_WRAPPER_OBJ)
-	$(CXX) -shared -o $@ $(RAMULATOR2_WRAPPER_OBJ) -L$(RAMULATOR2_DIR) -lramulator2 -Wl,-rpath=$(RAMULATOR2_DIR)
+$(AIMULATOR_WRAPPER_LIB): $(AIMULATOR_LIB_SO) $(AIMULATOR_WRAPPER_OBJ)
+	$(CXX) -shared -o $@ $(AIMULATOR_WRAPPER_OBJ) -L$(AIMULATOR_DIR) -laimulator -Wl,-rpath=$(AIMULATOR_DIR)
 
-$(RAMULATOR2_C_CONNECTOR_LIB): $(RAMULATOR2_WRAPPER_LIB) $(RAMULATOR2_C_CONNECTOR_OBJ)
-	$(CXX) -shared -o $@ $(RAMULATOR2_C_CONNECTOR_OBJ) -L$(BUILD_DIR) -lramulator2_wrapper_lib -Wl,-rpath=$(BUILD_DIR)
+$(AIMULATOR_C_CONNECTOR_LIB): $(AIMULATOR_WRAPPER_LIB) $(AIMULATOR_C_CONNECTOR_OBJ)
+	$(CXX) -shared -o $@ $(AIMULATOR_C_CONNECTOR_OBJ) -L$(BUILD_DIR) -laimulator_wrapper_lib -Wl,-rpath=$(BUILD_DIR)
 
 # --------------------------------------------------
 # Main Executable
@@ -196,8 +196,8 @@ $(SIM_OBJ_FILE): $(SIM_OBJS)
 $(BUILD_DIR)/sim-stats-display: $(BUILD_DIR)/obj/stats_display.o
 	$(CC) -o $(BUILD_DIR)/sim-stats-display $(BUILD_DIR)/obj/stats_display.o -lrt
 
-$(BUILD_DIR)/$(PROG_NAME)$(EXE): $(SIM_OBJ_FILE) $(DRAMSIM3_WRAPPER_C_CONNECTOR_LIB) $(RAMULATOR_WRAPPER_C_CONNECTOR_LIB) $(RAMULATOR2_C_CONNECTOR_LIB) $(EMU_OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(EMU_LIBS) -L$(BUILD_DIR) -ldramsim_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR) -L$(BUILD_DIR) -lramulator_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR) -L$(BUILD_DIR) -lramulator2_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR)
+$(BUILD_DIR)/$(PROG_NAME)$(EXE): $(SIM_OBJ_FILE) $(DRAMSIM3_WRAPPER_C_CONNECTOR_LIB) $(RAMULATOR_WRAPPER_C_CONNECTOR_LIB) $(AIMULATOR_C_CONNECTOR_LIB) $(EMU_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(EMU_LIBS) -L$(BUILD_DIR) -ldramsim_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR) -L$(BUILD_DIR) -lramulator_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR) -L$(BUILD_DIR) -laimulator_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR)
 
 $(BUILD_DIR)/obj/riscv_cpu.o: $(SRC_DIR)/riscv_cpu.c
 	@mkdir -p $(dir $@)
@@ -229,11 +229,11 @@ clean:
 	cd $(SRC_DIR)/ramulator && $(MAKE) clean && cd ../..
 	rm -f $(DRAMSIM3_WRAPPER_C_CONNECTOR_OBJ) $(DRAMSIM3_WRAPPER_OBJ)
 	cd $(SRC_DIR)/DRAMsim3 && $(MAKE) clean && cd ../..
-	rm -f $(RAMULATOR2_C_CONNECTOR_OBJ) $(RAMULATOR2_WRAPPER_OBJ)
-	rm -f $(RAMULATOR2_WRAPPER_LIB) $(RAMULATOR2_C_CONNECTOR_LIB)
-	rm -rf $(RAMULATOR2_DIR)/build
-	rm -rf $(RAMULATOR2_DIR)/ext
-	rm -f $(RAMULATOR2_LIB_SO)
+	rm -f $(AIMULATOR_C_CONNECTOR_OBJ) $(AIMULATOR_WRAPPER_OBJ)
+	rm -f $(AIMULATOR_WRAPPER_LIB) $(AIMULATOR_C_CONNECTOR_LIB)
+	rm -rf $(AIMULATOR_DIR)/build
+	rm -rf $(AIMULATOR_DIR)/ext
+	rm -f $(AIMULATOR_LIB_SO)
 
 -include $(wildcard $(BUILD_DIR)/obj/*.d)
 -include $(wildcard $(BUILD_DIR)/obj/slirp/*.d)
