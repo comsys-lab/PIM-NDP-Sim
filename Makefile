@@ -80,7 +80,7 @@ RAMULATOR_LIB_SO+=$(SRC_DIR)/ramulator/libramulator.so
 RAMULATOR_INC+=-I$(SRC_DIR)/ramulator/src
 
 # --------------------------------------------------
-# Custom AiMulator using CMake Integration
+# AiMulator using CMake Integration
 # --------------------------------------------------
 AIMULATOR_DIR = $(SRC_DIR)/AiMulator
 AIMULATOR_LIB_NAME = libaimulator.so
@@ -167,7 +167,6 @@ $(RAMULATOR_WRAPPER_LIB): $(RAMULATOR_LIB_SO) $(RAMULATOR_WRAPPER_OBJ)
 $(RAMULATOR_LIB_SO):
 	cd $(SRC_DIR)/ramulator && $(MAKE) libramulator.so && cd ../..
 
-# Custom Ramulator 2 build rules
 $(AIMULATOR_LIB_SO):
 	mkdir -p $(AIMULATOR_DIR)/build
 	cd $(AIMULATOR_DIR)/build && cmake .. -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) && $(MAKE) -j$(shell nproc)
@@ -198,6 +197,7 @@ $(BUILD_DIR)/sim-stats-display: $(BUILD_DIR)/obj/stats_display.o
 
 $(BUILD_DIR)/$(PROG_NAME)$(EXE): $(SIM_OBJ_FILE) $(DRAMSIM3_WRAPPER_C_CONNECTOR_LIB) $(RAMULATOR_WRAPPER_C_CONNECTOR_LIB) $(AIMULATOR_C_CONNECTOR_LIB) $(EMU_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(EMU_LIBS) -L$(BUILD_DIR) -ldramsim_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR) -L$(BUILD_DIR) -lramulator_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR) -L$(BUILD_DIR) -laimulator_wrapper_c_connector -Wl,-rpath=$(BUILD_DIR)
+	@cp $(BUILD_DIR)/$(PROG_NAME)$(EXE) ./$(PROG_NAME)$(EXE)
 
 $(BUILD_DIR)/obj/riscv_cpu.o: $(SRC_DIR)/riscv_cpu.c
 	@mkdir -p $(dir $@)
@@ -234,6 +234,7 @@ clean:
 	rm -rf $(AIMULATOR_DIR)/build
 	rm -rf $(AIMULATOR_DIR)/ext
 	rm -f $(AIMULATOR_LIB_SO)
+	rm -f ./$(PROG_NAME)$(EXE)
 
 -include $(wildcard $(BUILD_DIR)/obj/*.d)
 -include $(wildcard $(BUILD_DIR)/obj/slirp/*.d)

@@ -467,7 +467,11 @@ int target_read_slow(RISCVCPUState *s, mem_uint_t *pval,
             }
         } 
         else if (pr->is_pim) {
+            tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
             ptr = pr->phys_mem + (uintptr_t)(paddr - pr->addr);
+            s->tlb_read[tlb_idx].vaddr = addr & ~PG_MASK;
+            s->tlb_read[tlb_idx].mem_addend = (uintptr_t)ptr - addr;
+            s->tlb_read[tlb_idx].guest_paddr = paddr & ~PG_MASK;
             s->data_guest_paddr = (target_ulong)(paddr - pr->addr);
             s->is_pim_access = 1;
 
@@ -585,7 +589,11 @@ int target_write_slow(RISCVCPUState *s, target_ulong addr,
                 abort();
             }
         } else if (pr->is_pim) {
+            tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
             ptr = pr->phys_mem + (uintptr_t)(paddr - pr->addr);
+            s->tlb_write[tlb_idx].vaddr = addr & ~PG_MASK;
+            s->tlb_write[tlb_idx].mem_addend = (uintptr_t)ptr - addr;
+            s->tlb_write[tlb_idx].guest_paddr = paddr & ~PG_MASK;
             s->data_guest_paddr = (target_ulong)(paddr - pr->addr);
 
             s->is_pim_access = 1;
